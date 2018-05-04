@@ -1,0 +1,4 @@
+<issues>
+	<columns>idIssue,issueDesc</columns>
+	<ukey>idIssue</ukey>
+</issues>
