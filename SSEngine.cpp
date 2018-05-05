@@ -1,66 +1,69 @@
-#include <boost\property_tree\ptree.hpp>
-#include <boost\property_tree\xml_parser.hpp>
-#include <boost\property_tree\exceptions.hpp>
-//#include <boost\\optional\optional.hpp>
+#include <stdio.h> //define FILENAME_MAX
+#include <iostream>
+#include <PlatformInterfaces.hpp>
 #include "SSEngine.hpp"
-
-namespace pt = boost::property_tree;
 
 const string COLUMNS    = "columns";
 const string UKEY       = "ukey";
 const string KEY        = "key";
 const string DELIMITER  = ".";
 const string XML_SUBFIX = ".xml";
-
-//struct string_to_int_translator
-//{
-//    typedef string internal_type;
-//    typedef string external_type;
-//
-//    boost::optional<string> get_value(const std::string &s)
-//    {
-//        char *c;
-//        long l = std::strtol(s.c_str(), &c, 10);
-//        return boost::make_optional(c != s.c_str(), static_cast<int>(l));
-//    }
-//};
+const string FOLDER     = "\\SqlStatements\\";
 
 SSEngine::SSEngine(void)
 {
-    //Init();
+    Init();
 }
 
 SSEngine::~SSEngine()
 {
+    if (NULL != m_pSSCache)
+    {
+        delete m_pSSCache;
+        m_pSSCache = NULL;
+    }
+
+    if (NULL != m_pDoc)
+    {
+        delete m_pDoc;
+        m_pDoc = NULL;
+    }
 }
 
-SSEngine* SSEngine::m_pSSEngine = new SSEngine();
+void SSEngine::Init(void)
+{
+    m_pSSCache = new map<string, string>();
+    m_pDoc = new rxml::xml_document<>();
+}
+
 
 SSEngine* SSEngine::GetInstance(void)
 {
-    return m_pSSEngine;
+    static SSEngine s_SSEngine;
+    return &s_SSEngine;
 }
 
-string SSEngine::GetColumns(const string& a_rTable, short a_ColumnID)
+string SSEngine::GetColumns(const string& a_rTable, short a_ColumnID /* = 0 */)
 {
     string l_Columns = "";
-    string l_NodePath = a_rTable;
-    l_NodePath.append(DELIMITER); //table.
+    string l_NodePath = "";
 
     switch (a_ColumnID)
     {
-
+    //case 0 will be the same with default.
     case 0:
     default:
         {
-            l_NodePath.append(COLUMNS); //table.columns
+            l_NodePath.append(COLUMNS); //columns
         }
         break;
     }
 
-    if (m_SSCache.find(l_NodePath) != m_SSCache.end())
+    string l_CacheKey = a_rTable + DELIMITER + l_NodePath; //Table.columns
+    map<string, string>::iterator l_It = m_pSSCache->find(l_CacheKey);
+    if (m_pSSCache->end() != l_It)
     {
-        l_Columns.append(m_SSCache.find(l_NodePath)->second);
+        l_Columns.append(l_It->second);
     }
     else
     {
@@ -69,33 +72,34 @@ string SSEngine::GetColumns(const string& a_rTable, short a_ColumnID)
         //If the result of loading is not empty, add to the cache.
         if (l_Columns.size() != 0)
         {
-            m_SSCache[l_NodePath] = l_Columns;
+            m_pSSCache->insert(pair<string, string>(l_CacheKey, l_Columns));
         }
     }
 
     return l_Columns;
 }
 
-string SSEngine::GetKey(const string& a_rTable, short a_KeyNum)
+string SSEngine::GetKey(const string& a_rTable, short a_KeyNum /* = 0 */)
 {
     string l_Key = "";
-    string l_NodePath = a_rTable;
-    l_NodePath.append(DELIMITER); //table.
+    string l_NodePath = "";
 
     switch (a_KeyNum)
     {
-
+    //case 0 will be the same with default.
     case 0:
     default:
     {
-        l_NodePath.append(UKEY); //table.columns
+        l_NodePath.append(UKEY); //ukey
     }
     break;
     }
 
-    if (m_SSCache.find(l_NodePath) != m_SSCache.end())
+    string l_CacheKey = a_rTable + DELIMITER + l_NodePath; //Table.ukey
+    map<string, string>::iterator l_It = m_pSSCache->find(l_CacheKey);
+    if (m_pSSCache->end() != l_It)
     {
-        l_Key.append(m_SSCache.find(l_NodePath)->second);
+        l_Key.append(l_It->second);
     }
     else
     {
@@ -104,7 +108,7 @@ string SSEngine::GetKey(const string& a_rTable, short a_KeyNum)
         //If the result of loading is not empty, add to the cache.
         if (l_Key.size() != 0)
         {
-            m_SSCache[l_NodePath] = l_Key;
+            m_pSSCache->insert(pair<string, string>(l_CacheKey, l_Key));
         }
     }
 
@@ -114,17 +118,33 @@ string SSEngine::GetKey(const string& a_rTable, short a_KeyNum)
 string SSEngine::Load(const string& a_rTable, const string& a_rNodePath)
 {
     string l_Value = "";
-    string l_File = a_rTable + XML_SUBFIX;
-    
+
+    char l_FileBuffer[FILENAME_MAX];
+    memset(l_FileBuffer, 0, sizeof(l_FileBuffer));
+    GetCurrentDir(l_FileBuffer, FILENAME_MAX);
+
+    string l_FilePath(l_FileBuffer);
+    string l_File = l_FilePath + FOLDER + a_rTable + XML_SUBFIX;
+
     try
     {
-        pt::ptree l_Tree;
-        pt::read_xml(l_File, l_Tree);
-    
-        l_Value.append(l_Tree.get<string>(a_rNodePath));
+        rxml::file<> l_XmlFile(l_File.c_str());
+
+        //rxml::xml_document<> l_Doc;
+        m_pDoc->parse<0>(l_XmlFile.data());
+
+        rxml::xml_node<>* l_pRoot = m_pDoc->first_node();
+
+        //Get the first node and return the value.
+        rxml::xml_node<>* l_pTargetNode = l_pRoot->first_node(a_rNodePath.c_str());
+        if (NULL != l_pTargetNode)
+        {
+            l_Value.append(l_pTargetNode->value());
+        }
     }
-    catch (const pt::ptree_error& ex)
+    catch (const std::exception& ex)
     {
+        cout << __LINE__ << " : " << ex.what() << endl;
         l_Value.clear();
     }
 
